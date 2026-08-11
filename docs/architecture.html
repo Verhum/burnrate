@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>burnrate — Architecture Overview</title>
+<style>
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;
+    --fg:#c9d1d9;--fg2:#8b949e;--accent:#58a6ff;
+    --green:#3fb950;--yellow:#d29922;--red:#f85149;--purple:#bc8cff;
+    --border:#30363d;--radius:8px;
+  }
+  html{font-size:15px}
+  body{background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;line-height:1.6;padding:2rem 1rem}
+  .container{max-width:960px;margin:0 auto}
+  h1{font-size:2rem;font-weight:700;margin-bottom:.25rem;color:#fff}
+  .subtitle{color:var(--fg2);font-size:1rem;margin-bottom:2.5rem}
+  h2{font-size:1.35rem;font-weight:600;color:var(--accent);margin:2.5rem 0 1rem;padding-bottom:.4rem;border-bottom:1px solid var(--border)}
+  h3{font-size:1.1rem;font-weight:600;margin:1.5rem 0 .5rem;color:#fff}
+  p,li{color:var(--fg)}
+  ul,ol{padding-left:1.4rem;margin:.5rem 0}
+  li{margin:.3rem 0}
+  code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:.88em;background:var(--bg3);padding:.15em .35em;border-radius:4px;color:var(--purple)}
+  pre{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;overflow-x:auto;margin:1rem 0;font-size:.85rem;line-height:1.5}
+  pre code{background:none;padding:0;color:var(--fg)}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:1.25rem;margin:1rem 0}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:1rem;margin:1rem 0}
+  .badge{display:inline-block;padding:.15em .55em;border-radius:12px;font-size:.78rem;font-weight:600;margin-right:.3rem}
+  .b-green{background:rgba(63,185,80,.15);color:var(--green)}
+  .b-yellow{background:rgba(210,153,34,.15);color:var(--yellow)}
+  .b-red{background:rgba(248,81,73,.15);color:var(--red)}
+  .b-blue{background:rgba(88,166,255,.15);color:var(--accent)}
+  .b-purple{background:rgba(188,140,255,.15);color:var(--purple)}
+
+  /* Diagram */
+  .diagram-wrap{overflow-x:auto;margin:1.5rem 0}
+  .diagram{display:flex;align-items:flex-start;gap:0;min-width:700px;justify-content:center}
+  .layer{display:flex;flex-direction:column;align-items:center;gap:.5rem;min-width:140px}
+  .layer-title{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--fg2);margin-bottom:.25rem;font-weight:600}
+  .box{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius);padding:.6rem .9rem;text-align:center;font-size:.82rem;min-width:120px;position:relative}
+  .box.highlight{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .arrow-col{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:40px;color:var(--fg2);font-size:1rem}
+  .arrow-col span{transform:scaleX(1.5);display:block;line-height:1}
+
+  /* State machine */
+  .sm{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;justify-content:center;margin:1rem 0}
+  .sm .state{background:var(--bg3);border:1px solid var(--border);border-radius:20px;padding:.35em .9em;font-size:.82rem;font-weight:600;white-space:nowrap}
+  .sm .arrow{color:var(--fg2);font-size:.9rem}
+  .sm .state.s-idle{border-color:var(--fg2);color:var(--fg2)}
+  .sm .state.s-open{border-color:var(--green);color:var(--green)}
+  .sm .state.s-sat{border-color:var(--yellow);color:var(--yellow)}
+  .sm .state.s-drain{border-color:var(--red);color:var(--red)}
+
+  .table-wrap{overflow-x:auto;margin:1rem 0}
+  table{width:100%;border-collapse:collapse;font-size:.88rem}
+  th,td{text-align:left;padding:.5rem .75rem;border-bottom:1px solid var(--border)}
+  th{color:var(--fg2);font-weight:600;font-size:.8rem;text-transform:uppercase;letter-spacing:.04em}
+  td code{font-size:.82rem}
+
+  .footer{margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border);color:var(--fg2);font-size:.8rem;text-align:center}
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>burnrate</h1>
+<p class="subtitle">Architecture overview — a macOS daemon that maximizes Claude Code subscription utilization</p>
+
+<!-- ─── HIGH-LEVEL DIAGRAM ────────────────────────────────────── -->
+
+<h2>System Diagram</h2>
+
+<div class="diagram-wrap">
+<div class="diagram">
+  <div class="layer">
+    <div class="layer-title">Interface</div>
+    <div class="box">Web UI<br><small style="color:var(--fg2)">:9112 embed.FS</small></div>
+    <div class="box">CLI<br><small style="color:var(--fg2)">status · recover</small></div>
+    <div class="box">Tauri Desktop<br><small style="color:var(--fg2)">.app / .dmg</small></div>
+  </div>
+  <div class="arrow-col"><span>&#8594;</span></div>
+  <div class="layer">
+    <div class="layer-title">API Server</div>
+    <div class="box highlight">HTTP + SSE<br><small style="color:var(--fg2)">REST API</small></div>
+  </div>
+  <div class="arrow-col"><span>&#8594;</span></div>
+  <div class="layer">
+    <div class="layer-title">Core</div>
+    <div class="box highlight">Scheduler<br><small style="color:var(--fg2)">window FSM + evaluate</small></div>
+    <div class="box highlight">Runner<br><small style="color:var(--fg2)">worktree + claude -p</small></div>
+  </div>
+  <div class="arrow-col"><span>&#8594;</span></div>
+  <div class="layer">
+    <div class="layer-title">External</div>
+    <div class="box">Anthropic API<br><small style="color:var(--fg2)">oauth/usage</small></div>
+    <div class="box">macOS Keychain<br><small style="color:var(--fg2)">OAuth tokens</small></div>
+    <div class="box">claude CLI<br><small style="color:var(--fg2)">-p / --resume</small></div>
+  </div>
+</div>
+</div>
+
+<div class="card" style="text-align:center;font-size:.85rem;color:var(--fg2)">
+  <strong style="color:var(--fg)">Data plane:</strong> SQLite <code>~/.burnrate/burnrate.db</code> &nbsp;|&nbsp;
+  Worktrees <code>~/.burnrate/worktrees/</code> &nbsp;|&nbsp;
+  Logs <code>~/.burnrate/logs/</code>
+</div>
+
+<!-- ─── PACKAGE MAP ───────────────────────────────────────────── -->
+
+<h2>Package Map</h2>
+
+<div class="grid">
+  <div class="card">
+    <h3>cmd/burnrate</h3>
+    <p>Single binary entry point. Subcommands: <code>serve</code>, <code>status</code>, <code>install</code>, <code>uninstall</code>, <code>recover</code>, <code>accounts</code>, <code>version</code>.</p>
+  </div>
+  <div class="card">
+    <h3>internal/scheduler</h3>
+    <p>Poll loop, window state machine, launch evaluation, size estimates, process reconciliation. The brain of the daemon.</p>
+  </div>
+  <div class="card">
+    <h3>internal/runner</h3>
+    <p>Per-task execution: worktree setup, prompt building, <code>claude</code> invocation, failure classification, worktree cleanup.</p>
+  </div>
+  <div class="card">
+    <h3>internal/usage</h3>
+    <p>Keychain OAuth token resolution, token refresh, usage API client (<code>api.anthropic.com/api/oauth/usage</code>).</p>
+  </div>
+  <div class="card">
+    <h3>internal/claude</h3>
+    <p>Claude CLI wrapper: <code>invoke.go</code> (spawn + stream), <code>events.go</code> (stream-json parser), <code>ratelimit.go</code> (limit detection).</p>
+  </div>
+  <div class="card">
+    <h3>internal/store</h3>
+    <p>SQLite via <code>modernc.org/sqlite</code> (CGO-free). Tables: tasks, runs, usage_snapshots, settings, comments. Embedded schema + migrations.</p>
+  </div>
+  <div class="card">
+    <h3>internal/server</h3>
+    <p>HTTP mux + REST handlers + SSE hub. Serves the embedded web UI. Binds to <code>127.0.0.1:9112</code>.</p>
+  </div>
+  <div class="card">
+    <h3>internal/git</h3>
+    <p>Worktree add/remove, default-branch detection, fetch, push, dirty checks, slug generation.</p>
+  </div>
+  <div class="card">
+    <h3>internal/config</h3>
+    <p>Config struct from env vars + DB settings. Account discovery across sandbox and default locations.</p>
+  </div>
+  <div class="card">
+    <h3>internal/launchd</h3>
+    <p>Generates the <code>com.burnrate.agent</code> plist for macOS LaunchAgents. KeepAlive + RunAtLoad.</p>
+  </div>
+  <div class="card">
+    <h3>internal/recovery</h3>
+    <p>Sweeps worktrees for unpushed branches, creates draft PRs, prunes stale worktrees.</p>
+  </div>
+  <div class="card">
+    <h3>web/</h3>
+    <p>Embedded SPA: <code>index.html</code>, <code>app.js</code>, <code>style.css</code>, vendored SortableJS. No build step.</p>
+  </div>
+</div>
+
+<!-- ─── WINDOW STATE MACHINE ──────────────────────────────────── -->
+
+<h2>Scheduler: Window State Machine</h2>
+
+<p>The scheduler polls the Anthropic usage API every <code>poll_interval</code> (default 180s) and feeds each snapshot into a finite state machine that tracks the 5-hour session window:</p>
+
+<div class="sm">
+  <div class="state s-idle">IDLE</div>
+  <div class="arrow">&#8594;</div>
+  <div class="state s-open">OPEN</div>
+  <div class="arrow">&#8594;</div>
+  <div class="state s-sat">SATURATED</div>
+  <div class="arrow">&#8594;</div>
+  <div class="state s-drain">DRAINING</div>
+  <div class="arrow">&#8635;</div>
+  <div class="state s-open">OPEN</div>
+</div>
+
+<div class="card">
+  <div class="table-wrap">
+  <table>
+    <tr><th>State</th><th>Condition</th><th>Behavior</th></tr>
+    <tr>
+      <td><span class="badge b-blue">IDLE</span></td>
+      <td>No usage data yet / no active window</td>
+      <td>Waiting for first API response</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-green">OPEN</span></td>
+      <td>Active window, util &lt; threshold</td>
+      <td>Launches eligible tasks (up to <code>parallel_n</code>)</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-yellow">SATURATED</span></td>
+      <td><code>util &ge; util_threshold</code></td>
+      <td>No new launches; in-flight runs continue</td>
+    </tr>
+    <tr>
+      <td><span class="badge b-red">DRAINING</span></td>
+      <td>Time to reset &lt; <code>min_launch_window</code> (20m)</td>
+      <td>No new launches; runs SIGTERM before window closes</td>
+    </tr>
+  </table>
+  </div>
+  <p style="margin-top:.75rem;font-size:.85rem;color:var(--fg2)">
+    <strong>Reset detection:</strong> either <code>resets_at</code> advances by &gt;2m
+    or utilization drops &gt;40 pts (catches missed resets during laptop sleep).
+    On reset, state returns to <span class="badge b-green">OPEN</span>.
+  </p>
+</div>
+
+<!-- ─── EVALUATE LOOP ─────────────────────────────────────────── -->
+
+<h2>Scheduler: Evaluate Loop</h2>
+
+<p>Each tick, after observing the window, the scheduler runs <code>evaluate()</code>:</p>
+
+<pre><code>per tick:
+  fetch usage snapshot → store + SSE broadcast
+  window.Observe(snapshot)     → update FSM state, detect resets
+  reconcile()                  → adopt orphaned runs or mark dead
+  evaluate()                   → gate checks → candidate selection → launch
+
+evaluate():
+  if running >= parallel_n              → stop
+  if 5h util >= util_threshold          → stop  (SATURATED)
+  if 7-day util >= 95%                  → backoff until 7-day resets_at
+  if time_to_reset < min_launch_window  → stop  (DRAINING)
+
+  candidates = resumable_runs (resume-first!) ++ queued_tasks_by_order
+
+  for each candidate while running < parallel_n:
+    estimate = size_estimates[task.size]   // {duration, budget, timeout, util_cost}
+    will_finish = estimate.duration * 1.25 ≤ time_to_reset
+    timeout     = min(estimate.max_timeout, time_to_reset − drain_margin)
+
+    if will_finish → launch(task, timeout)</code></pre>
+
+<!-- ─── RUNNER LIFECYCLE ──────────────────────────────────────── -->
+
+<h2>Runner: Worktree + Resume Lifecycle</h2>
+
+<div class="card">
+<h3>New Task Launch</h3>
+<ol>
+  <li>Detect default branch (<code>git rev-parse --abbrev-ref origin/HEAD</code>)</li>
+  <li><code>git worktree add ~/.burnrate/worktrees/task-&lt;id&gt; -b burnrate/&lt;id&gt;-&lt;slug&gt;</code></li>
+  <li>Persist <code>worktree_path</code>, <code>branch</code>, <code>repo_path</code> to the run row <strong>before</strong> invoking claude</li>
+  <li>Build prompt from <code>worker-new.md</code> template + task data + runtime context</li>
+  <li>Invoke: <code>claude --print --output-format stream-json --verbose --dangerously-skip-permissions --model &lt;model&gt; --max-budget-usd &lt;budget&gt; -p "&lt;prompt&gt;"</code></li>
+  <li>Session ID persisted early via <code>OnSessionID</code> callback (parsed from <code>system/init</code> event)</li>
+  <li>On success: extract PR URL from output, mark task <code>done</code>, remove worktree</li>
+</ol>
+</div>
+
+<div class="card">
+<h3>Resume Flow (HR2: Resume, Never Restart)</h3>
+<ol>
+  <li>Interrupted runs (rate limit, timeout, crash) keep their worktree + session ID</li>
+  <li>Task marked <span class="badge b-yellow">resumable</span> — resumable runs have priority over queued tasks</li>
+  <li>Next window: <code>claude --resume &lt;session_id&gt;</code> in the <strong>same worktree</strong></li>
+  <li>Prompt switches to <code>worker-resume.md</code>: "check <code>git status</code> + <code>git log</code>, continue where you left off"</li>
+  <li>Session IDs chain across attempts — no tokens wasted redoing work</li>
+</ol>
+</div>
+
+<div class="card">
+<h3>Failure Classification</h3>
+<div class="table-wrap">
+<table>
+  <tr><th>Failure</th><th>Run Status</th><th>Task Status</th><th>Worktree</th></tr>
+  <tr>
+    <td>Rate limited</td>
+    <td><code>rate_limited</code></td>
+    <td><code>resumable</code> (if session captured)</td>
+    <td>Kept</td>
+  </tr>
+  <tr>
+    <td>Timeout (SIGTERM)</td>
+    <td><code>timed_out</code></td>
+    <td><code>resumable</code> (if session captured)</td>
+    <td>Kept</td>
+  </tr>
+  <tr>
+    <td>Error (crash/other)</td>
+    <td><code>errored</code></td>
+    <td><code>resumable</code> or <code>failed</code></td>
+    <td>Kept if resumable</td>
+  </tr>
+  <tr>
+    <td>Success</td>
+    <td><code>succeeded</code></td>
+    <td><code>done</code></td>
+    <td>Removed</td>
+  </tr>
+</table>
+</div>
+</div>
+
+<!-- ─── USAGE POLLING ─────────────────────────────────────────── -->
+
+<h2>Usage Polling</h2>
+
+<div class="card">
+<pre><code>GET https://api.anthropic.com/api/oauth/usage
+
+Headers:
+  Authorization: Bearer &lt;oauth_access_token&gt;
+  anthropic-beta: oauth-2025-04-20
+  User-Agent: claude-code/&lt;version&gt;    ← required or instant 429
+
+Response:
+  { five_hour:  { utilization: 0-100, resets_at: ISO8601 },
+    seven_day:  { utilization, resets_at },
+    seven_day_opus, seven_day_sonnet, scoped_weekly, extra_usage }</code></pre>
+<p style="margin-top:.75rem;font-size:.85rem">
+  Token source: macOS Keychain (<code>Claude Code-credentials</code>) → JSON → <code>claudeAiOauth.accessToken</code>.
+  Refreshed automatically when near-expiry. Pinned accounts resolve via sandbox keychain paths.
+  Snapshots stored in <code>usage_snapshots</code> table, trimmed after 14 days.
+</p>
+</div>
+
+<!-- ─── WEB UI + API ──────────────────────────────────────────── -->
+
+<h2>Web UI &amp; API Layer</h2>
+
+<div class="grid">
+  <div class="card">
+    <h3>API Routes</h3>
+    <ul style="font-size:.85rem">
+      <li><code>GET/POST /api/tasks</code> — CRUD</li>
+      <li><code>PUT/DELETE /api/tasks/{id}</code></li>
+      <li><code>POST /api/tasks/reorder</code> — drag-reorder via midpoint sort_order</li>
+      <li><code>POST /api/tasks/{id}/pause|resume|complete|dismiss</code></li>
+      <li><code>POST /api/tasks/{id}/run-now</code> — bypass all gates</li>
+      <li><code>POST /api/tasks/{id}/comments</code> — follow-up instructions</li>
+      <li><code>GET /api/runs</code>, <code>GET /api/runs/{id}/log</code></li>
+      <li><code>POST /api/runs/{id}/cancel</code></li>
+      <li><code>GET /api/usage</code>, <code>GET /api/status</code></li>
+      <li><code>GET/PUT /api/config</code></li>
+      <li><code>GET/POST /api/accounts</code> — multi-account switching</li>
+      <li><code>GET /api/events</code> — SSE stream</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>Web UI</h3>
+    <p>Single-page vanilla JS app served from <code>embed.FS</code>. No build step.</p>
+    <ul style="font-size:.85rem">
+      <li>Task queue with drag-reorder (SortableJS)</li>
+      <li>Status badges, PR links, run history</li>
+      <li>Add/edit modal (title, prompt, repo, size)</li>
+      <li>Live usage bars (5h + 7d) with countdown</li>
+      <li>Window state indicator + next-launch forecast</li>
+      <li>Run log viewer with parsed event timeline</li>
+      <li>Account selector (config tab)</li>
+      <li>SSE live updates, 5s-poll fallback</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ─── DATA MODEL ────────────────────────────────────────────── -->
+
+<h2>Data Model (SQLite)</h2>
+
+<div class="card">
+<div class="table-wrap">
+<table>
+  <tr><th>Table</th><th>Key Fields</th><th>Purpose</th></tr>
+  <tr>
+    <td><code>tasks</code></td>
+    <td>id, title, prompt, repo_path, size, sort_order (REAL), status</td>
+    <td>Queue-level state. Status: <code>queued|running|resumable|done|failed|paused|backlog|dismissed</code></td>
+  </tr>
+  <tr>
+    <td><code>runs</code></td>
+    <td>id, task_id FK, session_id, worktree_path, branch, pid, status, attempt, cost_usd, pr_url, window_id</td>
+    <td>Execution-level state. Status: <code>starting|running|succeeded|rate_limited|timed_out|errored|resuming|abandoned</code></td>
+  </tr>
+  <tr>
+    <td><code>usage_snapshots</code></td>
+    <td>captured_at, five_hour_util/resets_at, seven_day_util/resets_at, raw_json</td>
+    <td>Historical usage data. Trimmed &gt;14 days.</td>
+  </tr>
+  <tr>
+    <td><code>settings</code></td>
+    <td>key, value</td>
+    <td>UI-editable config (overrides env defaults for most keys)</td>
+  </tr>
+  <tr>
+    <td><code>comments</code></td>
+    <td>id, task_id, body, consumed_by_run_id</td>
+    <td>Follow-up instructions injected into next run's prompt</td>
+  </tr>
+</table>
+</div>
+</div>
+
+<!-- ─── PROCESS MODEL ─────────────────────────────────────────── -->
+
+<h2>Process Model</h2>
+
+<div class="card">
+<pre><code>launchd (com.burnrate.agent, KeepAlive=true)
+  └─ burnrate serve
+       ├─ scheduler goroutine (poll loop every 180s)
+       │    ├─ usage.Client.Fetch() → Anthropic API
+       │    ├─ window.Observe()     → FSM transition
+       │    ├─ reconcile()          → adopt/kill orphaned pids
+       │    └─ evaluate()           → launch up to parallel_n tasks
+       │         └─ runner.Run() goroutine (per task)
+       │              ├─ git worktree add
+       │              ├─ claude -p --output-format stream-json
+       │              │    (own process group, SIGTERM+5s→SIGKILL on timeout)
+       │              ├─ stream → log file + session_id extraction
+       │              └─ classify → done|resumable|failed + cleanup
+       └─ HTTP server goroutine
+            ├─ REST API handlers
+            ├─ SSE hub (broadcast on usage/run/task events)
+            └─ static file server (embedded web UI)</code></pre>
+</div>
+
+<!-- ─── KEY DESIGN DECISIONS ──────────────────────────────────── -->
+
+<h2>Key Design Decisions</h2>
+
+<div class="grid">
+  <div class="card">
+    <h3>Resume, Never Restart</h3>
+    <p>Session IDs are captured early (from the first <code>system/init</code> event) and persisted before any work happens. Interrupted runs always resume with <code>--resume</code> in the same worktree — no tokens wasted.</p>
+  </div>
+  <div class="card">
+    <h3>Daemon-Owned Worktrees</h3>
+    <p>Git worktrees are created by the Go daemon (not the agent), so paths are known for resume, cleanup, and recovery. The agent works inside a pre-created worktree.</p>
+  </div>
+  <div class="card">
+    <h3>Catch-Up, Not Timers</h3>
+    <p>Window resets are detected by comparing <code>resets_at</code> and utilization drops on each poll tick. No timer needs to fire at the exact reset instant — laptop sleep is handled by catch-up.</p>
+  </div>
+  <div class="card">
+    <h3>Finish-Within-Session</h3>
+    <p>Tasks are only launched if their size estimate says they'll finish before the window closes. Per-run timeout = <code>min(max_timeout, time_to_reset − drain_margin)</code>, ensuring graceful SIGTERM before the API starts rejecting.</p>
+  </div>
+</div>
+
+<!-- ─── CONFIG ─────────────────────────────────────────────────── -->
+
+<h2>Configuration</h2>
+
+<div class="card">
+<div class="table-wrap">
+<table>
+  <tr><th>Key</th><th>Default</th><th>Env Override</th></tr>
+  <tr><td><code>parallel_n</code></td><td>3</td><td><code>BURNRATE_PARALLEL_N</code></td></tr>
+  <tr><td><code>util_threshold</code></td><td>100</td><td><code>BURNRATE_UTIL_THRESHOLD</code></td></tr>
+  <tr><td><code>model</code></td><td>opus</td><td><code>BURNRATE_MODEL</code></td></tr>
+  <tr><td><code>poll_interval_sec</code></td><td>180</td><td>—</td></tr>
+  <tr><td><code>min_launch_window_min</code></td><td>20</td><td>—</td></tr>
+  <tr><td><code>drain_margin_min</code></td><td>10</td><td>—</td></tr>
+  <tr><td><code>base_code_dir</code></td><td>~/code</td><td><code>BURNRATE_BASE_CODE_DIR</code></td></tr>
+  <tr><td><code>port</code></td><td>9112</td><td><code>BURNRATE_PORT</code></td></tr>
+  <tr><td><code>dry_run</code></td><td>false</td><td><code>BURNRATE_DRYRUN=1</code></td></tr>
+</table>
+</div>
+<p style="margin-top:.75rem;font-size:.85rem;color:var(--fg2)">
+  Settings stored in the DB (via UI or API) override env vars, except for account keys where the DB value takes precedence.
+</p>
+</div>
+
+<div class="footer">
+  burnrate · architecture overview · generated from source
+</div>
+
+</div>
+</body>
+</html>

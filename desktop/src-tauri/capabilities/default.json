@@ -1,0 +1,13 @@
+{
+  "identifier": "default",
+  "description": "Default capability set for Burnrate desktop app",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-open",
+    "notification:default"
+  ],
+  "remote": {
+    "urls": ["http://127.0.0.1:*"]
+  }
+}

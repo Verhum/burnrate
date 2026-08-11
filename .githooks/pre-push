@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+#
+# Scans only the commits a push would actually send. This is the layer that
+# stops a stale local ref from re-publishing history that was already scrubbed:
+# a clone whose tags predate a history rewrite still points them at the old
+# commits, so a single `git push --tags` puts the removed credential back on the
+# remote as branch-reachable history. Neither pre-commit nor `make secrets`
+# looks at what a push contains, and the remote will not refuse it.
+#
+# Same caveats as pre-commit: active only once core.hooksPath points at
+# .githooks, and --no-verify skips it. CI is the gate.
+
+set -euo pipefail
+
+remote="${1:-origin}"
+hooks_dir="$(cd "$(dirname "$0")" && pwd)"
+
+# Each stdin line is "<local ref> <local sha> <remote ref> <remote sha>".
+selectors=()
+while read -r local_ref local_sha remote_ref remote_sha; do
+	[ -n "$local_sha" ] || continue
+	case "$local_sha" in
+	*[!0]*) ;;      # a real object
+	*) continue ;;  # all zeroes: a deletion sends no commits
+	esac
+	case "$remote_sha" in
+	*[!0]*) selectors+=("$remote_sha..$local_sha") ;;
+	# A ref the remote does not have yet: everything it reaches that no
+	# remote-tracking ref already covers. That is what catches a stale tag,
+	# whose commits are absent from every origin/* ref after a rewrite.
+	*) selectors+=("$local_sha --not --remotes=$remote") ;;
+	esac
+done
+
+[ "${#selectors[@]}" -eq 0 ] && exit 0
+
+# One scan per pushed ref: `git log` applies --not to everything that follows,
+# so range and exclusion selectors cannot share a single invocation.
+status=0
+for selector in "${selectors[@]}"; do
+	read -r -a parts <<<"$selector"
+	"$hooks_dir/../scripts/secret-scan.sh" push "${parts[@]}" || status=1
+done
+
+if [ "$status" -ne 0 ]; then
+	cat >&2 <<-EOF
+
+		pre-push: refusing to push commits that carry a credential.
+
+		  If this is a tag or branch left over from before a history rewrite, the
+		  commits it points at are the pre-rewrite ones and pushing them undoes the
+		  rewrite. Repoint or delete the ref rather than passing --no-verify:
+		  scripts/purge-leaked-refs.sh lists every local ref that reaches a leak.
+	EOF
+fi
+exit "$status"

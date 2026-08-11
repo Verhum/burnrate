@@ -1,0 +1,2 @@
+ALTER TABLE task_comments ADD COLUMN author TEXT NOT NULL DEFAULT 'user';
+ALTER TABLE runs ADD COLUMN result_text TEXT NOT NULL DEFAULT '';

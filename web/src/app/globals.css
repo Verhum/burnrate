@@ -1,0 +1,126 @@
+@import "tailwindcss";
+
+@theme {
+  --color-*: initial;
+
+  /* `--color-*: initial` above clears Tailwind's entire default palette,
+     including black/white. Re-declare them or every `*-black`/`*-white`
+     utility silently emits no CSS. */
+  --color-black: #000000;
+  --color-white: #FFFFFF;
+
+  --color-surface: #1C1B19;
+  --color-elevated: #262523;
+  --color-raised: #343230;
+  --color-warm: #5C5347;
+
+  --color-amber: #F59E0B;
+  --color-gold: #FBBF24;
+  --color-rust: #C47A2A;
+  --color-sage: #A3B18A;
+  --color-danger: #EF4444;
+  /* GitHub's merged-PR purple, the one state the warm palette has no analogue
+     for. Used by lib/task-prs.ts to color a PR chip by its probed state. */
+  --color-merged: #A78BFA;
+
+  --color-primary: #F5F2ED;
+  --color-dim: #8A8378;
+  --color-muted: #6B6560;
+
+  --font-*: initial;
+  --font-mono: "SF Mono", "JetBrains Mono", "Cascadia Code", "Fira Code", ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    border-radius: 0 !important;
+  }
+
+  body {
+    background-color: #141312;
+    color: var(--color-primary);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .prose-comment p { margin: 0.25em 0; }
+  .prose-comment p:first-child { margin-top: 0; }
+  .prose-comment p:last-child { margin-bottom: 0; }
+  .prose-comment code {
+    background: var(--color-raised);
+    padding: 0.1em 0.35em;
+    font-size: 0.9em;
+  }
+  .prose-comment pre {
+    background: var(--color-raised);
+    padding: 0.5em 0.75em;
+    margin: 0.5em 0;
+    overflow-x: auto;
+  }
+  .prose-comment pre code {
+    background: none;
+    padding: 0;
+  }
+  .prose-comment a {
+    color: var(--color-amber);
+    text-decoration: underline;
+  }
+  /* Tailwind's preflight sets `list-style: none` on ul/ol, so a markdown list
+     rendered here arrived as bare indented lines — no bullets, no numbers.
+     Restore the markers explicitly; padding alone never brought them back. */
+  .prose-comment ul, .prose-comment ol {
+    padding-left: 1.5em;
+    margin: 0.35em 0;
+    list-style-position: outside;
+  }
+  .prose-comment ul { list-style-type: disc; }
+  .prose-comment ol { list-style-type: decimal; }
+  .prose-comment ul ul { list-style-type: circle; }
+  .prose-comment ul ul ul { list-style-type: square; }
+  .prose-comment ol ol { list-style-type: lower-alpha; }
+  .prose-comment ol ol ol { list-style-type: lower-roman; }
+  .prose-comment li { margin: 0.15em 0; }
+  .prose-comment li::marker { color: var(--color-dim); }
+  .prose-comment li > ul, .prose-comment li > ol { margin: 0.15em 0; }
+  /* GFM task list: the checkbox is the marker. */
+  .prose-comment li:has(> input[type="checkbox"]) { list-style-type: none; }
+  /* Images pasted into a reply land as `![name](/api/attachments/N/data)` and
+     must never blow out the card they render in. */
+  .prose-comment img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.4em 0;
+    border: 1px solid var(--color-raised);
+  }
+  .prose-comment blockquote {
+    border-left: 2px solid var(--color-warm);
+    padding-left: 0.75em;
+    margin: 0.25em 0;
+    color: var(--color-dim);
+  }
+  @keyframes voice-wave {
+    0%, 100% { transform: scaleY(1); }
+    50% { transform: scaleY(4); }
+  }
+
+  /* Comment-sized content, not page chrome: a restrained scale that still
+     reads as a heading next to 11px body text. */
+  .prose-comment h1, .prose-comment h2, .prose-comment h3,
+  .prose-comment h4, .prose-comment h5, .prose-comment h6 {
+    font-weight: 600;
+    line-height: 1.3;
+    margin: 0.6em 0 0.25em;
+  }
+  .prose-comment h1:first-child, .prose-comment h2:first-child,
+  .prose-comment h3:first-child, .prose-comment h4:first-child,
+  .prose-comment h5:first-child, .prose-comment h6:first-child {
+    margin-top: 0;
+  }
+  .prose-comment h1 { font-size: 1.25em; font-weight: 700; }
+  .prose-comment h2 { font-size: 1.1em; }
+  .prose-comment h3 { font-size: 1em; }
+  .prose-comment h4, .prose-comment h5, .prose-comment h6 { font-size: 1em; color: var(--color-dim); }
+}

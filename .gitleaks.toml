@@ -1,0 +1,32 @@
+# Secret-scanning rules. Three callers share this file through
+# scripts/secret-scan.sh: the pre-commit hook, `make secrets`, and the CI
+# `secrets` job.
+#
+# There are no custom rules. The credential this repo actually leaked was a bare
+# UUID assigned to `SECRET=` in a shell script, and the stock `generic-api-key`
+# rule catches that shape on entropy alone. What the stock rules need in this
+# tree is an allowlist, and only these two entries.
+
+title = "burnrate"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Generated trees — build output and dependencies are not source."
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)\.next/''',
+  '''^web/out/''',
+  '''^desktop/src-tauri/target/''',
+]
+
+[[allowlists]]
+description = """
+Claude Code's OAuth *client* ID. By OAuth design a public client identifier is
+not a credential — it ships inside the CLI. It is a bare UUID, so
+`generic-api-key` scores it on entropy like any other. Scoped to the one
+assignment so a real secret in the same file is still caught.
+"""
+regexTarget = "line"
+regexes = ['''oauthClientID\s*=\s*"[0-9a-fA-F-]{36}"''']

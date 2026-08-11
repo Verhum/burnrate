@@ -1,0 +1,31 @@
+{
+  "name": "burnrate-web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3113",
+    "build": "next build && npm run keep-embed-target",
+    "keep-embed-target": "mkdir -p out && touch out/.gitkeep",
+    "start": "next start",
+    "test": "node --import ./scripts/ts-resolve-hook.mjs --test \"src/**/*.test.ts\"",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "next": "^16.2.11",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.10",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}

@@ -1,0 +1,75 @@
+name: CI
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  # The enforcement point for secrets. The pre-commit hook is convenience —
+  # untracked per clone and skippable with --no-verify — so this job is the only
+  # gate a leaked credential cannot get past. fetch-depth: 0 because the point is
+  # to scan the commits being introduced, not just the resulting tree.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # Not gitleaks/gitleaks-action: it requires a paid GITLEAKS_LICENSE for
+      # organization-owned repos, and Verhum is an org. The binary is the same
+      # scanner, pinned and checksummed, and running it through the repo's own
+      # script keeps CI and the pre-commit hook on one config.
+      - name: Install gitleaks
+        env:
+          VERSION: 8.30.1
+          SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          f="gitleaks_${VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$f" "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/${f}"
+          echo "${SHA256}  ${f}" | sha256sum -c -
+          sudo tar -xzf "$f" -C /usr/local/bin gitleaks
+      - run: ./scripts/secret-scan.sh history
+
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: gofmt -l . | tee /dev/stderr | (! read)
+      - run: go test ./... -race -count=1
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: cd web && npm ci
+      - run: cd web && npx tsc --noEmit
+      - run: cd web && npm run lint
+      - run: cd web && npm run build
+
+  # The landing site had no CI at all, which is how a broken release-publish
+  # path shipped six times unnoticed. Node 24 because the tests run the .ts
+  # sources directly (type stripping + node:module registerHooks).
+  landing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+      - run: cd landing && npm ci
+      - run: cd landing && npm run typecheck
+      - run: cd landing && npm test
+      - run: cd landing && npm run build

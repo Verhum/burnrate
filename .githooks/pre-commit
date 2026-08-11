@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+#
+# Active only once `git config core.hooksPath .githooks` is set, which
+# scripts/bootstrap.sh does. Hooks are not tracked by git and a clone never runs
+# one on its own, so an uninstalled hook is the normal state of a fresh checkout
+# — it is CI that has to be the enforcement point, not this file.
+
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/secret-scan.sh" staged

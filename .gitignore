@@ -1,0 +1,32 @@
+# built binary
+/burnrate
+dist/
+
+# runtime data (normally lives in ~/.burnrate, belt and suspenders here)
+*.db
+*.db-wal
+*.db-shm
+*.log
+/worktrees/
+
+# secrets — never commit env or credential files
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# go tooling
+coverage.out
+*.test
+
+# desktop app build artifacts
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/
+desktop/src-tauri/gen/
+
+# OS / editor / agent scratch
+.DS_Store
+.idea/
+.vscode/
+.claude/

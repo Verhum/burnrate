@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Burnrate",
+  "version": "0.1.14",
+  "identifier": "com.burnrate.desktop",
+  "build": {
+    "frontendDist": "../../web/out",
+    "beforeBuildCommand": ""
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' http://127.0.0.1:* http://localhost:*; img-src 'self' http://127.0.0.1:* data: blob:",
+      "capabilities": ["default"]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "public.app-category.developer-tools",
+    "copyright": "Copyright (c) 2026 Alex Wurts, https://github.com/Verhum/burnrate — BSD-3-Clause",
+    "shortDescription": "Claude Code quota manager — maximize your 5-hour session window.",
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "signingIdentity": null,
+      "entitlements": "Entitlements.plist",
+      "dmg": {
+        "appPosition": { "x": 180, "y": 170 },
+        "applicationFolderPosition": { "x": 480, "y": 170 },
+        "windowSize": { "width": 660, "height": 400 },
+        "background": "dmg/background.png"
+      }
+    },
+    "resources": {
+      "binaries/burnrate-*": "binaries/"
+    }
+  }
+}
