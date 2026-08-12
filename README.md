@@ -18,6 +18,39 @@ Licensed under [BSD-3-Clause](LICENSE) — do what you like with it, keep the co
 Not affiliated with or endorsed by Anthropic; Claude and Claude Code are Anthropic
 trademarks. burnrate drives the `claude` CLI you install yourself and bundles nothing.
 
+## Local development quickstart
+
+Prerequisites: Go 1.25+, Node 20+, npm, [pm2](https://pm2.keymetrics.io/) (`npm i -g pm2`).
+
+```bash
+git clone https://github.com/Verhum/burnrate.git && cd burnrate
+make bootstrap        # install web deps, verify Go compiles (~5s)
+make dev              # PM2 starts the daemon + Next.js dev server
+```
+
+The dev stack runs on its own port and data directory so it never conflicts with
+an installed app:
+
+| Service | URL |
+|---|---|
+| Web UI | http://localhost:3113 |
+| Daemon API | http://127.0.0.1:9113 |
+
+`DRY=1 make dev` stubs all `claude` invocations — useful for working on the UI
+without burning tokens.
+
+```bash
+make dev-logs         # tail PM2 logs
+make dev-restart      # rebuild Go binary, restart daemon (keeps web running)
+make dev-stop         # tear down
+```
+
+For faster Go iteration without PM2:
+
+```bash
+make dev-web          # daemon via `go run` + Next.js dev server
+```
+
 ## Desktop App
 
 A Tauri v2 macOS app bundles the daemon + web UI into a distributable `.app`/`.dmg`.

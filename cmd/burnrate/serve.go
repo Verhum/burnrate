@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -96,13 +97,22 @@ func runServe() {
 	// Capture videos are the bulky part of a capture; keyframes and transcripts
 	// are kept forever, the videos age out per capture_retention_days.
 	go retention.New(st, dataDir, logger).Start(ctx)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		logger.Errorf("listen %s: %v", addr, err)
+		fmt.Fprintf(os.Stderr, "error: listen %s: %v\n", addr, err)
+		os.Exit(1)
+	}
+
 	go func() {
-		if err := srv.ListenAndServe(ctx); err != nil {
+		if err := srv.Serve(ctx, ln); err != nil {
 			logger.Errorf("http server error: %v", err)
 		}
 	}()
 
-	logger.Infof("burnrate serving on 127.0.0.1:%d (data=%s)", cfg.Port, dataDir)
+	logger.Infof("burnrate serving on %s (data=%s)", addr, dataDir)
 
 	<-sigCh
 	logger.Infof("received signal, shutting down")
