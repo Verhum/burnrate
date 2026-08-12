@@ -34,7 +34,7 @@ func allowedOrigins(port int) map[string]bool {
 		// A browser pointed straight at the daemon. Same-origin requests omit
 		// Origin, but EventSource and preflights send it.
 		fmt.Sprintf("http://127.0.0.1:%d", port): true,
-		fmt.Sprintf("http://localhost:%d", port):  true,
+		fmt.Sprintf("http://localhost:%d", port): true,
 	}
 	// The Next.js dev proxy (web/next.config.ts rewrites) forwards the
 	// browser's Origin header on POST/PUT/DELETE — modern browsers send it
