@@ -192,6 +192,7 @@ sign: ## Codesign the bundled sidecar + the .app with the hardened runtime (need
 	# 0, shipping a DMG with no background. Hence also the || cleanup below: never
 	# leave a volume mounted on failure.
 	rm -f "$(DMG)"
+	@mkdir -p "$(dir $(DMG))"
 	@DMG_STAGING=$$(mktemp -d) && \
 		DMG_RW=$$(mktemp -u).dmg && \
 		cp -R "$(APP)" "$$DMG_STAGING/" && \

@@ -43,6 +43,8 @@
   var attempt = 0;
   var maxAttempts = 60;
 
+  var port = window.__BURNRATE_PORT__ || 9112;
+
   function checkHealth() {
     attempt++;
     if (attempt > maxAttempts) {
@@ -58,13 +60,12 @@
       statusEl.textContent = 'Waiting for daemon... (' + attempt + 's)';
     }
 
-    fetch('http://127.0.0.1:9112/health')
+    fetch('http://127.0.0.1:' + port + '/health')
       .then(function(r) {
         if (r.ok) {
           statusEl.textContent = 'Connected!';
-          // The Rust backend navigates us; if it hasn't after 2s, do it ourselves.
           setTimeout(function() {
-            window.location.href = 'http://127.0.0.1:9112';
+            window.location.href = 'http://127.0.0.1:' + port;
           }, 2000);
         } else {
           setTimeout(checkHealth, 500);

@@ -777,6 +777,35 @@ fn rebuild_tray_menu(
     let _ = tray.set_tooltip(Some(&tooltip));
 }
 
+async fn try_start_sidecar(
+    handle: &tauri::AppHandle,
+    binary_path: &str,
+    port: u16,
+    child: &SidecarChild,
+) -> bool {
+    for attempt in 1..=5u32 {
+        if attempt > 1 {
+            warn!("[sidecar] start attempt {} of 5", attempt);
+            kill_spawned_child(child).await;
+            tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+        }
+        reclaim_sidecar_slot(port, binary_path).await;
+        if start_sidecar(binary_path, port, child).await
+            && wait_for_healthy(port, 60).await.is_ok()
+        {
+            notify_frontend_ready(handle);
+            return true;
+        }
+        report_child_state(child).await;
+    }
+    error!("[sidecar] gave up after 5 attempts — check logs at ~/.burnrate/desktop-sidecar.log");
+    sidecar_failed(
+        handle,
+        "Burnrate could not start its background daemon. See ~/.burnrate/desktop-sidecar.log.",
+    );
+    false
+}
+
 pub fn run() {
     let child_state: SidecarChild = Arc::new(Mutex::new(None));
     let child_for_exit = child_state.clone();
@@ -938,36 +967,39 @@ pub fn run() {
                     }
                 };
 
-                // Every launch kills whatever is already there and starts its
-                // own daemon. A leftover process is indistinguishable from a
-                // healthy one over /health, and if it is wedged — or is an old
-                // build, or holds the data-dir lock without serving — adopting
-                // it leaves the app dead with no in-app way to recover.
-                let mut started = false;
-                for attempt in 1..=3u32 {
-                    if attempt > 1 {
-                        warn!("[sidecar] start attempt {} of 3", attempt);
-                        kill_spawned_child(&child_for_spawn).await;
-                    }
-                    reclaim_sidecar_slot(port, &binary_path).await;
-                    if start_sidecar(&binary_path, port, &child_for_spawn).await
-                        && wait_for_healthy(port, 40).await.is_ok()
-                    {
-                        started = true;
-                        break;
-                    }
-                    report_child_state(&child_for_spawn).await;
+                if !try_start_sidecar(&handle, &binary_path, port, &child_for_spawn).await {
+                    return;
                 }
 
-                if started {
-                    notify_frontend_ready(&handle);
-                    start_tray_poller(handle.clone(), port);
-                } else {
-                    error!("[sidecar] gave up after 3 attempts — check logs at ~/.burnrate/desktop-sidecar.log");
-                    sidecar_failed(
-                        &handle,
-                        "Burnrate could not start its background daemon. See ~/.burnrate/desktop-sidecar.log.",
-                    );
+                start_tray_poller(handle.clone(), port);
+
+                // Watchdog: if the daemon dies while the app is open, restart it.
+                loop {
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    let alive = {
+                        let mut guard = child_for_spawn.lock().await;
+                        match *guard {
+                            Some(ref mut c) => match c.try_wait() {
+                                Ok(Some(status)) => {
+                                    warn!("[watchdog] sidecar exited with {}", status);
+                                    *guard = None;
+                                    false
+                                }
+                                Ok(None) => true,
+                                Err(e) => {
+                                    warn!("[watchdog] could not check sidecar: {}", e);
+                                    false
+                                }
+                            },
+                            None => false,
+                        }
+                    };
+                    if !alive && !is_healthy(port).await {
+                        warn!("[watchdog] sidecar is down, restarting");
+                        if !try_start_sidecar(&handle, &binary_path, port, &child_for_spawn).await {
+                            return;
+                        }
+                    }
                 }
             });
 

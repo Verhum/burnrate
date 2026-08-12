@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"time"
 
@@ -233,6 +234,23 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		s.server.Shutdown(shutdownCtx)
 	}()
 	err := s.server.ListenAndServe()
+	if err == http.ErrServerClosed {
+		return nil
+	}
+	return err
+}
+
+// Serve is like ListenAndServe but uses an already-bound listener. The caller
+// can bind the port first (catching "address in use" before logging "serving"),
+// then hand the listener here.
+func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		s.server.Shutdown(shutdownCtx)
+	}()
+	err := s.server.Serve(ln)
 	if err == http.ErrServerClosed {
 		return nil
 	}
