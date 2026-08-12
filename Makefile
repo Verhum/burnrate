@@ -10,7 +10,7 @@ CMD    := $(BINARY)
 # purpose, and quit the installed app first.
 DEV_PORT ?= 9113
 DEV_DATA_DIR ?= $(HOME)/.burnrate-dev
-DEV_ENV := BURNRATE_PORT=$(DEV_PORT) BURNRATE_DATA_DIR=$(DEV_DATA_DIR) $(if $(DRY),BURNRATE_DRYRUN=1,)
+DEV_ENV := BURNRATE_PORT=$(DEV_PORT) BURNRATE_DATA_DIR=$(DEV_DATA_DIR) BURNRATE_DEV_ORIGIN=http://localhost:3113 $(if $(DRY),BURNRATE_DRYRUN=1,)
 
 .DEFAULT_GOAL := help
 

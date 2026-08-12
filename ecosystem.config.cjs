@@ -10,6 +10,7 @@ module.exports = {
         BURNRATE_DATA_DIR:
           process.env.BURNRATE_DATA_DIR ||
           `${process.env.HOME}/.burnrate-dev`,
+        BURNRATE_DEV_ORIGIN: 'http://localhost:3113',
         ...(process.env.DRY === '1' || process.env.BURNRATE_DRYRUN === '1'
           ? { BURNRATE_DRYRUN: '1' }
           : {}),

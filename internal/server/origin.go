@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -17,11 +18,12 @@ import (
 // Origin, so it never matches.
 //
 // The allowlist has exactly two kinds of legitimate member. The embedded UI
-// shipped inside the Go binary is same-origin and needs no entry, and the
-// Next.js dev server proxies /api server-side (web/next.config.ts), so those
-// requests arrive with no Origin at all.
+// shipped inside the Go binary is same-origin and needs no entry. The
+// Next.js dev proxy (web/next.config.ts) forwards the browser's Origin
+// header, and modern browsers send Origin on same-origin POST/PUT/DELETE,
+// so the dev proxy's origin must be in the allowlist (BURNRATE_DEV_ORIGIN).
 func allowedOrigins(port int) map[string]bool {
-	return map[string]bool{
+	m := map[string]bool{
 		// The Tauri webview serves embedded assets, so it is genuinely
 		// cross-origin against the sidecar on 127.0.0.1. Scheme varies by
 		// platform and Tauri version.
@@ -32,8 +34,16 @@ func allowedOrigins(port int) map[string]bool {
 		// A browser pointed straight at the daemon. Same-origin requests omit
 		// Origin, but EventSource and preflights send it.
 		fmt.Sprintf("http://127.0.0.1:%d", port): true,
-		fmt.Sprintf("http://localhost:%d", port): true,
+		fmt.Sprintf("http://localhost:%d", port):  true,
 	}
+	// The Next.js dev proxy (web/next.config.ts rewrites) forwards the
+	// browser's Origin header on POST/PUT/DELETE — modern browsers send it
+	// even on same-origin mutating requests. Without this, every write
+	// through the proxy is rejected.
+	if dev := os.Getenv("BURNRATE_DEV_ORIGIN"); dev != "" {
+		m[dev] = true
+	}
+	return m
 }
 
 // guarded reports whether the origin check applies to this path. The API, the
