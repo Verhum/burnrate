@@ -31,6 +31,13 @@ var validConfigKeys = map[string]bool{
 	"agent_capture_auto_approve": true,
 	"capture_approval_wait_sec":  true,
 	"capture_retention_days":     true,
+	"notify_on_failure":          true,
+	"notify_email":               true,
+	"smtp_host":                  true,
+	"smtp_port":                  true,
+	"smtp_user":                  true,
+	"smtp_password":              true,
+	"smtp_from":                  true,
 }
 
 // Keys GET /api/config reports that PUT will never accept. Named separately from
@@ -99,6 +106,12 @@ func (s *Server) handleGetConfig(w http.ResponseWriter, _ *http.Request) {
 		"agent_capture_auto_approve": settingBool("agent_capture_auto_approve", false),
 		"capture_approval_wait_sec":  settingInt("capture_approval_wait_sec", 120),
 		"capture_retention_days":     settingInt("capture_retention_days", 30),
+		"notify_on_failure":          settingStr("notify_on_failure", "true"),
+		"notify_email":               settingStr("notify_email", ""),
+		"smtp_host":                  settingStr("smtp_host", "localhost"),
+		"smtp_port":                  settingStr("smtp_port", "587"),
+		"smtp_user":                  settingStr("smtp_user", ""),
+		"smtp_from":                  settingStr("smtp_from", "burnrate@localhost"),
 	}
 	writeJSON(w, 200, m)
 }

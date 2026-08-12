@@ -8,6 +8,7 @@ import (
 
 	"github.com/Verhum/burnrate/internal/caffeinate"
 	"github.com/Verhum/burnrate/internal/config"
+	"github.com/Verhum/burnrate/internal/email"
 	brlog "github.com/Verhum/burnrate/internal/log"
 	"github.com/Verhum/burnrate/internal/mcp"
 	"github.com/Verhum/burnrate/internal/notify"
@@ -89,6 +90,27 @@ func New(st *store.Store, cfg config.Config, sched *scheduler.Scheduler, caff *c
 	notify.SetNotifyFunc(func(n notify.Notification) error {
 		s.hub.broadcast("notification", n)
 		return nil
+	})
+
+	// Email notifications read SMTP config from the settings table on every
+	// call so a PUT /api/config change takes effect immediately.
+	notify.SetEmailFunc(func(subject, body string) error {
+		emailTo, ok := st.GetSetting("notify_email")
+		if !ok || emailTo == "" {
+			return nil
+		}
+		smtpHost, _ := st.GetSetting("smtp_host")
+		smtpPort, _ := st.GetSetting("smtp_port")
+		smtpUser, _ := st.GetSetting("smtp_user")
+		smtpPass, _ := st.GetSetting("smtp_password")
+		smtpFrom, _ := st.GetSetting("smtp_from")
+		return email.Send(email.Config{
+			Host: smtpHost,
+			Port: smtpPort,
+			User: smtpUser,
+			Pass: smtpPass,
+			From: smtpFrom,
+		}, emailTo, subject, body)
 	})
 
 	mux := http.NewServeMux()

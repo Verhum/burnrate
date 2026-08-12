@@ -605,13 +605,15 @@ func (s *Scheduler) reconcileLocked(runs []store.Run) []int64 {
 
 		if r.PID > 0 && processAlive(r.PID) {
 			if !ProcessIsClaude(r.PID) {
+				errText := "daemon lost track (pid recycled)"
 				s.logger.Warnf("reconcile: run %d (task %d) pid %d is alive but not claude (recycled pid), marking errored",
 					r.ID, r.TaskID, r.PID)
-				s.st.FinishRun(r.ID, "errored", r.CostUSD, r.NumTurns, "", "daemon lost track (pid recycled)", "")
+				s.st.FinishRun(r.ID, "errored", r.CostUSD, r.NumTurns, "", errText, "")
 				if r.SessionID != "" {
 					s.st.SetTaskStatus(r.TaskID, "resumable")
 				} else {
 					s.st.SetTaskStatus(r.TaskID, "failed")
+					runner.FireFailureNotification(s.st, r.TaskID, "", errText, s.logger)
 				}
 				touched = append(touched, r.TaskID)
 				continue
@@ -625,14 +627,23 @@ func (s *Scheduler) reconcileLocked(runs []store.Run) []int64 {
 
 			errText := "orphaned claude from previous daemon killed; will resume"
 			s.st.FinishRun(r.ID, "errored", r.CostUSD, r.NumTurns, "", errText, "")
-			s.st.SetTaskStatus(r.TaskID, scheduling.TaskStatusAfterInterruption(r.SessionID != ""))
+			status := scheduling.TaskStatusAfterInterruption(r.SessionID != "")
+			s.st.SetTaskStatus(r.TaskID, status)
+			if status == "failed" {
+				runner.FireFailureNotification(s.st, r.TaskID, "", errText, s.logger)
+			}
 			touched = append(touched, r.TaskID)
 			continue
 		}
 
 		s.logger.Infof("reconcile: run %d (task %d) is dead, marking recoverable", r.ID, r.TaskID)
-		s.st.FinishRun(r.ID, "errored", r.CostUSD, r.NumTurns, "", "process died", "")
-		s.st.SetTaskStatus(r.TaskID, scheduling.TaskStatusAfterInterruption(r.SessionID != ""))
+		errText := "process died"
+		s.st.FinishRun(r.ID, "errored", r.CostUSD, r.NumTurns, "", errText, "")
+		status := scheduling.TaskStatusAfterInterruption(r.SessionID != "")
+		s.st.SetTaskStatus(r.TaskID, status)
+		if status == "failed" {
+			runner.FireFailureNotification(s.st, r.TaskID, "", errText, s.logger)
+		}
 		touched = append(touched, r.TaskID)
 	}
 

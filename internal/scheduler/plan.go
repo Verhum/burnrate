@@ -210,6 +210,7 @@ func (s *Scheduler) suspend(d scheduling.Decision) {
 func (s *Scheduler) fail(c candidate, d scheduling.Decision) {
 	s.logger.Warnf("task %d (%s): %s, marking failed", c.task.ID, c.task.Title, d.Reason.Text)
 	s.st.SetTaskStatus(c.task.ID, "failed")
+	runner.FireFailureNotification(s.st, c.task.ID, c.task.Title, d.Reason.Text, s.logger)
 	if s.OnBroadcast != nil {
 		s.OnBroadcast("run_update", c.task.ID)
 	}

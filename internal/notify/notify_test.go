@@ -117,6 +117,83 @@ func TestRequestCreatedCarriesIDs(t *testing.T) {
 	}
 }
 
+func TestTaskFailedEmitsSSEAndEmail(t *testing.T) {
+	var got Notification
+	SetNotifyFunc(func(n Notification) error {
+		got = n
+		return nil
+	})
+	var emailSubject, emailBody string
+	SetEmailFunc(func(subject, body string) error {
+		emailSubject = subject
+		emailBody = body
+		return nil
+	})
+	t.Cleanup(func() {
+		SetNotifyFunc(nil)
+		SetEmailFunc(nil)
+	})
+
+	if err := TaskFailed(42, "BR42", "fix the widget", "connection refused"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if got.TaskID != 42 {
+		t.Fatalf("expected task_id 42, got %d", got.TaskID)
+	}
+	if !contains(got.Body, "BR42 fix the widget — failed") {
+		t.Fatalf("expected SSE body to contain task info, got %q", got.Body)
+	}
+	if !contains(got.Body, "connection refused") {
+		t.Fatalf("expected SSE body to contain error, got %q", got.Body)
+	}
+	if !contains(emailSubject, "BR42") || !contains(emailSubject, "failed") {
+		t.Fatalf("expected email subject to mention task and failure, got %q", emailSubject)
+	}
+	if !contains(emailBody, "connection refused") {
+		t.Fatalf("expected email body to contain error, got %q", emailBody)
+	}
+}
+
+func TestTaskFailedNoEmailWhenNotSet(t *testing.T) {
+	SetNotifyFunc(func(n Notification) error { return nil })
+	SetEmailFunc(nil)
+	t.Cleanup(func() {
+		SetNotifyFunc(nil)
+	})
+
+	if err := TaskFailed(1, "BR1", "task", "err"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestTaskFailedTruncatesLongError(t *testing.T) {
+	var got Notification
+	SetNotifyFunc(func(n Notification) error {
+		got = n
+		return nil
+	})
+	t.Cleanup(func() {
+		SetNotifyFunc(nil)
+		SetEmailFunc(nil)
+	})
+
+	longErr := ""
+	for i := 0; i < 300; i++ {
+		longErr += "x"
+	}
+
+	if err := TaskFailed(1, "BR1", "task", longErr); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got.Body) > 300 {
+		t.Fatalf("expected SSE body to be truncated, got len %d", len(got.Body))
+	}
+	if !contains(got.Body, "...") {
+		t.Fatalf("expected truncation marker, got %q", got.Body)
+	}
+}
+
 func TestReviewOmitsZeroIDs(t *testing.T) {
 	var got Notification
 	SetNotifyFunc(func(n Notification) error {

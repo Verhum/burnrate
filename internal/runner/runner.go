@@ -121,10 +121,13 @@ func cancelledCause(ctx context.Context) bool {
 // (scheduling.TaskStatusAfterInterruption) so this and the daemon's
 // reconciliation of orphaned runs cannot drift apart.
 func settleInterrupted(ctx context.Context, st *store.Store, task store.Task, runID int64,
-	hasSession, agentMode bool, worktreePath, repoPath string, logger *log.Logger) {
+	hasSession, agentMode bool, worktreePath, repoPath, errMsg string, logger *log.Logger) {
 
 	status := scheduling.TaskStatusAfterInterruption(hasSession)
 	st.SetTaskStatus(task.ID, status)
+	if status == string(domain.TaskStatusFailed) {
+		FireFailureNotification(st, task.ID, task.Title, errMsg, logger)
+	}
 	if agentMode {
 		cleanupAgentWorkdir(ctx, worktreePath, runID, logger)
 	} else {
@@ -711,7 +714,7 @@ func classify(ctx context.Context, st *store.Store, task store.Task, run *store.
 		// ctx is already cancelled, so any workspace teardown needs a live one.
 		settleCtx, cancelSettle := context.WithTimeout(context.WithoutCancel(ctx), 60*time.Second)
 		defer cancelSettle()
-		settleInterrupted(settleCtx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, logger)
+		settleInterrupted(settleCtx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, susp.Error(), logger)
 		notifyRunMutation(onMutation, task.ID)
 		logger.Infof("run %d: suspended, will resume next session (cost=$%.2f, turns=%d)",
 			run.ID, result.CostUSD, result.NumTurns)
@@ -738,7 +741,7 @@ func classify(ctx context.Context, st *store.Store, task store.Task, run *store.
 		if rl, ok := invokeErr.(*claude.ErrRateLimited); ok && !rl.ResetAt.IsZero() {
 			st.SetRunRateLimitResetAt(run.ID, rl.ResetAt.UTC().Format(time.RFC3339))
 		}
-		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, logger)
+		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, invokeErr.Error(), logger)
 		notifyRunMutation(onMutation, task.ID)
 		logger.Warnf("run %d: rate limited: %v", run.ID, invokeErr)
 		return invokeErr
@@ -750,7 +753,7 @@ func classify(ctx context.Context, st *store.Store, task store.Task, run *store.
 		// id — which implies no tool call ever ran, so a denial is
 		// near-impossible here — falls through to being failed.
 		st.FinishRun(run.ID, "errored", result.CostUSD, result.NumTurns, "", invokeErr.Error(), result.ResultText)
-		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, logger)
+		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, invokeErr.Error(), logger)
 		notifyRunMutation(onMutation, task.ID)
 		if hasSession {
 			logger.Warnf("run %d: auto-denied tool call, auto-continue exhausted; task left resumable: %v", run.ID, invokeErr)
@@ -761,14 +764,14 @@ func classify(ctx context.Context, st *store.Store, task store.Task, run *store.
 
 	case isTimeout(invokeErr):
 		st.FinishRun(run.ID, "timed_out", result.CostUSD, result.NumTurns, "", invokeErr.Error(), "")
-		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, logger)
+		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, invokeErr.Error(), logger)
 		notifyRunMutation(onMutation, task.ID)
 		logger.Warnf("run %d: timed out: %v", run.ID, invokeErr)
 		return invokeErr
 
 	default:
 		st.FinishRun(run.ID, "errored", result.CostUSD, result.NumTurns, "", invokeErr.Error(), "")
-		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, logger)
+		settleInterrupted(ctx, st, task, run.ID, hasSession, agentMode, worktreePath, repoPath, invokeErr.Error(), logger)
 		notifyRunMutation(onMutation, task.ID)
 		logger.Errorf("run %d: errored: %v", run.ID, invokeErr)
 		return invokeErr
@@ -1376,6 +1379,21 @@ func isTimeout(err error) bool {
 	return ok
 }
 
+// FireFailureNotification sends a failure notification (SSE + email) when a
+// task is marked failed, gated by the notify_on_failure setting.
+func FireFailureNotification(st *store.Store, taskID int64, title, errorMsg string, logger *log.Logger) {
+	v, ok := st.GetSetting("notify_on_failure")
+	if ok && (v == "false" || v == "0") {
+		return
+	}
+	displayID := fmt.Sprintf("BR%d", taskID)
+	go func() {
+		if err := notify.TaskFailed(taskID, displayID, title, errorMsg); err != nil {
+			logger.Warnf("failure notification failed: %v", err)
+		}
+	}()
+}
+
 func fireReviewNotification(st *store.Store, task store.Task, prURL string, logger *log.Logger) {
 	// Gating is read synchronously so a UI toggle takes effect immediately.
 	v, ok := st.GetSetting("notify_on_review")
@@ -1404,8 +1422,10 @@ func fireReviewNotification(st *store.Store, task store.Task, prURL string, logg
 // with a readable error.
 func preflightError(st *store.Store, taskID int64, windowID, worktreePath, branch, repoPath string, maxAttempts int, err error, logger *log.Logger, onMutation func(int64)) error {
 	var resetRunID int64
-	if t, err := st.GetTask(taskID); err == nil {
+	var taskTitle string
+	if t, lookupErr := st.GetTask(taskID); lookupErr == nil {
 		resetRunID = t.AttemptResetRunID
+		taskTitle = t.Title
 	}
 	prior, _ := st.LatestRunForTask(taskID)
 	attempt := domain.EffectiveAttempt(resetRunID, prior) + 1
@@ -1417,6 +1437,7 @@ func preflightError(st *store.Store, taskID int64, windowID, worktreePath, branc
 	st.FinishRun(run.ID, "errored", 0, 0, "", err.Error(), "")
 	if maxAttempts > 0 && attempt >= maxAttempts {
 		st.SetTaskStatus(taskID, "failed")
+		FireFailureNotification(st, taskID, taskTitle, err.Error(), logger)
 		logger.Errorf("run %d: pre-flight error for task %d (attempt %d/%d), marking failed: %v", run.ID, taskID, attempt, maxAttempts, err)
 	} else {
 		st.SetTaskStatus(taskID, "queued")

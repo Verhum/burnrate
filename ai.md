@@ -312,6 +312,16 @@ capture_retention_days  int       30              —                           
 
 DB-only keys (no env):
   notify_on_review      string    "true"          enable macOS notifications on PR creation
+  notify_on_failure     string    "true"          enable notifications (SSE + email) on task failure.
+                                                  Gated at call site: runner.FireFailureNotification
+                                                  reads this synchronously before emitting
+  notify_email          string    ""              email address for failure notifications. Empty = no
+                                                  email. Comma-separated for multiple recipients
+  smtp_host             string    "localhost"     SMTP server host
+  smtp_port             string    "587"           SMTP server port
+  smtp_user             string    ""              SMTP username (optional, no auth if empty)
+  smtp_password         string    ""              SMTP password (write-only: not in GET /api/config)
+  smtp_from             string    "burnrate@localhost" sender address for email notifications
   size_small            JSON      {dur:15m,budget:5,max:30m,util:8}    small task estimates
   size_medium           JSON      {dur:40m,budget:15,max:75m,util:20}  medium task estimates
   size_large            JSON      {dur:90m,budget:25,max:150m,util:40} large task estimates
@@ -460,7 +470,7 @@ burnrate version    runVersion()   Print version (build-time Version var, defaul
 
 ```
 cmd/burnrate -> config, store, scheduler, server, caffeinate, recovery, log, daemon, usage, retention
-server       -> store, config, scheduler, caffeinate, runner, service, checkout, prstatus, mcp, web, log
+server       -> store, config, scheduler, caffeinate, runner, service, checkout, prstatus, mcp, web, email, log
 scheduler    -> store, config, runner, usage, log
 runner       -> store, config, claude, git, notify, usage, prompts, log
 service      -> domain, store (via interfaces), notify
@@ -475,7 +485,8 @@ checkout     -> domain, git               (switches the user's clones under base
 caffeinate   -> (standalone: exec wrapper)
 mcp          -> service (MCP streamable-HTTP: ask_human, await_request, request_demo;
                 plus list_capture_targets + capture_screen, which always return isError)
-notify       -> (standalone: a Notification struct + a callback the server registers)
+notify       -> (standalone: Notification struct + SSE callback + email callback the server registers)
+email        -> (standalone: SMTP sender via net/smtp)
 retention    -> domain, log       (prunes aged capture videos; store injected as a narrow interface)
 web          -> (standalone: embedded filesystem)
 ```
