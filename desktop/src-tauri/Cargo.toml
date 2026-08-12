@@ -1,6 +1,6 @@
 [package]
 name = "burnrate-desktop"
-version = "0.1.14"
+version = "0.1.15"
 description = "Burnrate — Claude Code quota manager"
 authors = ["Alex Wurts"]
 edition = "2021"
