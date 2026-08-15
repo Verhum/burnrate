@@ -24,12 +24,14 @@ import { useKeyboard } from "@/hooks/use-keyboard";
 import { usePendingRequests } from "@/hooks/use-pending-requests";
 import { apiReady } from "@/lib/api/client";
 import { shouldOpenInShell } from "@/lib/external-link";
+import { WizardPanel, WizardTabLabel } from "@/components/wizard/wizard-panel";
 
 const TABS = [
   { id: "tasks", label: "TASKS" },
   { id: "runs", label: "RUNS" },
   { id: "usage", label: "USAGE" },
   { id: "config", label: "CONFIG" },
+  { id: "wizard", label: "WIZARD" },
 ] as const;
 
 export function AppShell() {
@@ -245,7 +247,7 @@ export function AppShell() {
       <Header onAddTask={handleAddTask} onVoiceTask={() => setVoiceOpen(true)} isRecording={recorder.state === "recording"} />
       <BurnRateBar />
 
-      <nav className="grid grid-cols-4 mt-0.5" style={{ gap: "2px" }} data-tour="tabs">
+      <nav className="grid grid-cols-5 mt-0.5" style={{ gap: "2px" }} data-tour="tabs">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -254,7 +256,7 @@ export function AppShell() {
               cursor-pointer border-none font-mono transition-colors overflow-hidden
               ${activeTab === t.id ? "bg-elevated text-primary" : "bg-surface text-dim hover:bg-elevated hover:text-primary"}`}
           >
-            {t.label}
+            {t.id === "wizard" ? <WizardTabLabel active={activeTab === t.id} /> : t.label}
           </button>
         ))}
       </nav>
@@ -280,6 +282,7 @@ export function AppShell() {
             <AccountSelector />
           </div>
         )}
+        {activeTab === "wizard" && <WizardPanel />}
       </main>
 
       <WeeklyBurn />
