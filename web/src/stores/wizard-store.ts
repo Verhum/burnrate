@@ -13,6 +13,8 @@ export interface WizardNote {
 }
 
 const NOTES_KEY = "wizard-notes";
+const WHISPER_URL_KEY = "wizard-whisper-url";
+const DEFAULT_WHISPER_URL = "http://localhost:8080/v1/audio/transcriptions";
 
 function loadNotes(): WizardNote[] {
   if (typeof window === "undefined") return [];
@@ -28,15 +30,17 @@ function persistNotes(notes: WizardNote[]) {
   localStorage.setItem(NOTES_KEY, JSON.stringify(notes));
 }
 
+export function getWhisperUrl(): string {
+  if (typeof window === "undefined") return DEFAULT_WHISPER_URL;
+  return localStorage.getItem(WHISPER_URL_KEY) || DEFAULT_WHISPER_URL;
+}
+
+export function setWhisperUrl(url: string) {
+  localStorage.setItem(WHISPER_URL_KEY, url);
+}
+
 const ORB_COLORS_RGB565 = [
-  0xf800, // red
-  0x07e0, // green
-  0x001f, // blue
-  0xffe0, // yellow
-  0xf81f, // magenta
-  0x07ff, // cyan
-  0xfd20, // orange
-  0xd01f, // purple
+  0xf800, 0x07e0, 0x001f, 0xffe0, 0xf81f, 0x07ff, 0xfd20, 0xd01f,
 ];
 
 export const ORB_COLORS_CSS = [
@@ -52,7 +56,7 @@ interface WizardState {
   lastSyncAt: number | null;
   syncCount: number;
   wandUp: boolean;
-  isRecording: boolean;
+  isSyncing: boolean;
   notes: WizardNote[];
 
   connect: () => Promise<void>;
@@ -69,59 +73,74 @@ let burnrateChar: BluetoothRemoteGATTCharacteristic | null = null;
 let micChar: BluetoothRemoteGATTCharacteristic | null = null;
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let recognition: any = null;
-let currentTranscript = "";
+// ── BLE audio transfer state machine ──
+let xferState: "idle" | "receiving" = "idle";
+let xferExpectedSize = 0;
+let xferChunks: Uint8Array[] = [];
+let xferReceived = 0;
+let xferFilename = "";
 
-function startRecording() {
-  const SpeechRecognition =
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    console.warn("SpeechRecognition not available");
-    return;
+async function transcribeAndSave(blob: Blob, filename: string) {
+  const url = getWhisperUrl();
+  try {
+    const form = new FormData();
+    form.append("file", blob, filename);
+    form.append("model", "whisper-1");
+    const res = await fetch(url, { method: "POST", body: form });
+    if (!res.ok) throw new Error(`Whisper ${res.status}`);
+    const data = await res.json();
+    const text = data.text?.trim();
+    if (!text) return;
+    const note: WizardNote = {
+      id: crypto.randomUUID(),
+      text,
+      createdAt: Date.now(),
+    };
+    const notes = [note, ...useWizardStore.getState().notes];
+    persistNotes(notes);
+    useWizardStore.setState({ notes });
+  } catch (e) {
+    console.error("Transcription failed:", e);
+    const note: WizardNote = {
+      id: crypto.randomUUID(),
+      text: `[transcription failed: ${filename}]`,
+      createdAt: Date.now(),
+    };
+    const notes = [note, ...useWizardStore.getState().notes];
+    persistNotes(notes);
+    useWizardStore.setState({ notes });
   }
-  currentTranscript = "";
-  recognition = new SpeechRecognition();
-  recognition.continuous = true;
-  recognition.interimResults = false;
-  recognition.lang = "en-US";
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  recognition.onresult = (e: any) => {
-    for (let i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        currentTranscript += e.results[i][0].transcript;
-      }
-    }
-  };
-  recognition.onerror = (e: any) => console.warn("Speech error:", e.error); // eslint-disable-line @typescript-eslint/no-explicit-any
-  recognition.start();
-  useWizardStore.setState({ isRecording: true });
-}
-
-function stopRecording() {
-  if (recognition) {
-    recognition.stop();
-    recognition = null;
-  }
-  useWizardStore.setState({ isRecording: false });
-  const text = currentTranscript.trim();
-  if (!text) return;
-  const note: WizardNote = {
-    id: crypto.randomUUID(),
-    text,
-    createdAt: Date.now(),
-  };
-  const notes = [note, ...useWizardStore.getState().notes];
-  persistNotes(notes);
-  useWizardStore.setState({ notes });
 }
 
 function handleMicNotification(event: Event) {
   const target = event.target as unknown as BluetoothRemoteGATTCharacteristic;
-  const value = new TextDecoder().decode(target.value!);
-  if (value === "START") startRecording();
-  else if (value === "STOP") stopRecording();
+  const raw = new Uint8Array(target.value!.buffer);
+
+  if (xferState === "idle") {
+    const text = new TextDecoder().decode(raw);
+    if (text.startsWith("WAV:")) {
+      const parts = text.split(":");
+      xferFilename = parts[1];
+      xferExpectedSize = parseInt(parts[2], 10);
+      xferChunks = [];
+      xferReceived = 0;
+      xferState = "receiving";
+      useWizardStore.setState({ isSyncing: true });
+    } else if (text === "SYNC_DONE") {
+      useWizardStore.setState({ isSyncing: false });
+    }
+    return;
+  }
+
+  // receiving state — collect binary chunks
+  xferChunks.push(new Uint8Array(raw));
+  xferReceived += raw.length;
+
+  if (xferReceived >= xferExpectedSize) {
+    const blob = new Blob(xferChunks as BlobPart[], { type: "audio/wav" });
+    xferState = "idle";
+    transcribeAndSave(blob, xferFilename);
+  }
 }
 
 function stopSync() {
@@ -152,7 +171,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
   lastSyncAt: null,
   syncCount: 0,
   wandUp: false,
-  isRecording: false,
+  isSyncing: false,
   notes: loadNotes(),
 
   connect: async () => {
@@ -173,7 +192,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
         stopSync();
         burnrateChar = null;
         micChar = null;
-        set({ status: "disconnected", deviceName: null, wandUp: false });
+        set({ status: "disconnected", deviceName: null, wandUp: false, isSyncing: false });
       });
 
       const server = await device.gatt!.connect();
@@ -207,7 +226,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
 
   disconnect: () => {
     stopSync();
-    if (recognition) stopRecording();
+    xferState = "idle";
     if (micChar) {
       micChar.removeEventListener("characteristicvaluechanged", handleMicNotification);
     }
@@ -217,7 +236,7 @@ export const useWizardStore = create<WizardState>((set, get) => ({
     device = null;
     burnrateChar = null;
     micChar = null;
-    set({ status: "disconnected", deviceName: null, error: null, wandUp: false, isRecording: false });
+    set({ status: "disconnected", deviceName: null, error: null, wandUp: false, isSyncing: false });
   },
 
   sendCommand: async (cmd, orbs) => {

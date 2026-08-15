@@ -334,9 +334,9 @@ function formatDate(ts: number): string {
 }
 
 function NotesCard() {
-  const { notes, isRecording, deleteNote } = useWizardStore();
+  const { notes, isSyncing, deleteNote } = useWizardStore();
 
-  if (notes.length === 0 && !isRecording) return null;
+  if (notes.length === 0 && !isSyncing) return null;
 
   return (
     <Card>
@@ -345,11 +345,11 @@ function NotesCard() {
           <span className="text-[10px] font-bold uppercase tracking-widest text-dim">
             Notes
           </span>
-          {isRecording && (
+          {isSyncing && (
             <Badge variant="running">
               <span className="inline-flex items-center gap-1">
-                <span className="inline-block w-1.5 h-1.5 rounded-full bg-danger animate-pulse" />
-                listening
+                <Spinner size="sm" />
+                syncing
               </span>
             </Badge>
           )}
